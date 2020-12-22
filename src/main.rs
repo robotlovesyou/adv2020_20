@@ -89,11 +89,13 @@ impl Tile {
 }
 
 trait Variable {
-    fn variations(&self) -> Vec<Rc<Tile>>;
+    type Item;
+    fn variations(&self) -> Vec<Self::Item>;
 }
 
 impl Variable for Rc<Tile> {
-    fn variations(&self) -> Vec<Self> {
+    type Item = Rc<Tile>;
+    fn variations(&self) -> Vec<Self::Item> {
         let mut variations = Vec::new();
         let mut current = self.clone();
         variations.push(current.clone());
@@ -114,15 +116,22 @@ impl Variable for Rc<Tile> {
 }
 
 trait PictureOps {
-    fn all_variations(&self) -> Vec<Rc<Tile>>;
+    type Item;
+    fn all_variations(&self) -> Vec<Self::Item>;
+}
+
+trait TilesOps {
     fn find_top_lefts(&self) -> Vec<Rc<Tile>>;
 }
 
 impl PictureOps for &[Rc<Tile>] {
-    fn all_variations(&self) -> Vec<Rc<Tile>> {
+    type Item = Rc<Tile>;
+    fn all_variations(&self) -> Vec<Self::Item> {
         self.iter().map(|t| t.variations()).flatten().collect()
     }
+}
 
+impl TilesOps for &[Rc<Tile>] {
     fn find_top_lefts(&self) -> Vec<Rc<Tile>> {
         let mut top_lefts = Vec::new();
 
