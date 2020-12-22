@@ -1,0 +1,11 @@
+[package]
+name = "adv2020_20"
+version = "0.1.0"
+authors = ["Andrew Smith <andy@robotlovesyou.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+indoc = "1.0.3"
+itertools = "0.9.0"
