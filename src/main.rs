@@ -2,17 +2,23 @@ use std::collections::{HashMap, HashSet};
 use std::{fmt, cmp};
 use std::fmt::Formatter;
 use std::rc::Rc;
-use itertools::Itertools;
+
+use im_rc::{HashSet as IMHashSet, Vector as IMVector, vector};
+use itertools::{Itertools, all};
 
 const TILE_SIZE: usize = 10;
 const IMAGE_SIZE: usize = 12;
+const IMAGE_PIXEL_SIZE: usize = IMAGE_SIZE * 8;
 const BUFFER_SIZE: usize = 100;
+const PICTURE_BUFFER_SIZE: usize = IMAGE_SIZE * IMAGE_SIZE * 8;
 
 fn main() {
     let tiles = read_tiles(include_str!("../input.txt").lines());
     let all_tiles = (&tiles[..]).all_variations();
     let part_1_solution = part_1(&all_tiles);
     println!("part 1: {}", part_1_solution);
+
+    let picture_vec = build_picture_vec(&all_tiles, IMAGE_SIZE);
 }
 
 struct Tile {
@@ -122,6 +128,8 @@ trait PictureOps {
 
 trait TilesOps {
     fn find_top_lefts(&self) -> Vec<Rc<Tile>>;
+    fn find_next_rights(&self, of: &Rc<Tile>, used: &IMHashSet<u32>) -> Vec<Rc<Tile>>;
+    fn find_next_belows(&self, of: &Rc<Tile>, used: &IMHashSet<u32>) -> Vec<Rc<Tile>>;
 }
 
 impl PictureOps for &[Rc<Tile>] {
@@ -145,6 +153,30 @@ impl TilesOps for &[Rc<Tile>] {
         }
         top_lefts.iter().unique_by(|t| t.id).cloned().collect()
     }
+
+    fn find_next_rights(&self, of: &Rc<Tile>, used: &IMHashSet<u32>) -> Vec<Rc<Tile>> {
+        let mut next_rights = Vec::new();
+
+        for tile in self.iter().filter(|t|!used.contains(&t.id) && t.id != of.id) {
+            if tile.connects_right_of(of) {
+                next_rights.push(tile.clone());
+            }
+        }
+
+        next_rights
+    }
+
+    fn find_next_belows(&self, of: &Rc<Tile>, used: &IMHashSet<u32>) -> Vec<Rc<Tile>> {
+        let mut next_belows = Vec::new();
+
+        for tile in self.iter().filter(|t| !used.contains(&t.id) && t.id != of.id) {
+            if tile.connects_below(of) {
+                next_belows.push(tile.clone());
+            }
+        }
+
+        next_belows
+    }
 }
 
 impl fmt::Display for Tile {
@@ -162,6 +194,50 @@ impl fmt::Display for Tile {
 
 fn offset(x: usize, y: usize) -> usize {
     y * TILE_SIZE + x
+}
+
+struct Image {
+    pixels: Vec<u8>,
+    size: usize,
+}
+
+fn image_offset(x: usize, y: usize, size: usize) -> usize {
+    y * size + x
+}
+
+impl Image {
+    fn new(tiles: &[Rc<Tile>], size: usize, tile_size: usize) -> Image {
+        let mut pixels= vec![0u8; size * size];
+
+        for (i, tile) in tiles.iter().enumerate() {
+            let start_x = (i * 8) % (size);
+            let start_y = (i / tile_size) * 8;
+            println!("{},{}", start_x, start_y);
+            for x in 1..TILE_SIZE-1 {
+                for y in 1..TILE_SIZE-1 {
+                    pixels[image_offset(start_x + x-1, start_y + y-1, size)] = tile.pixels[offset(x, y)];
+                }
+            }
+        }
+
+        Image {
+            pixels,
+            size
+        }
+    }
+}
+
+impl fmt::Display for Image {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let mut buffer = String::with_capacity(self.pixels.len());
+        for y in 0..self.size {
+            for x in 0..self.size {
+                buffer += self.pixels[image_offset(x, y, self.size)].to_string().as_str();
+            }
+            buffer += "\n";
+        }
+        write!(f, "{}", buffer)
+    }
 }
 
 fn read_tiles<'a>(lines: impl Iterator<Item=&'a str>) -> Vec<Rc<Tile>> {
@@ -192,208 +268,48 @@ fn part_1(all_tiles: &[Rc<Tile>]) -> u64 {
     all_tiles.find_top_lefts().iter().map(|t| t.id as u64).product()
 }
 
+fn build_picture_vec(all_tiles: &[Rc<Tile>], size: usize) -> Vec<Rc<Tile>> {
+    let top_left = all_tiles.find_top_lefts().first().expect("no top lefts").clone();
 
-// #[derive(Copy, Clone, Eq, PartialEq, Debug, Hash)]
-// enum Edge {
-//     Top,
-//     Bottom,
-//     Left,
-//     Right
-// }
-//
-// use Edge::*;
-// use std::env::var;
-//
-// #[derive(Clone)]
-// struct Tile {
-//     id: u32,
-//     pixels: Vec<Vec<char>>,
-// }
-//
-// impl Tile {
-//     pub fn new(id: u32, pixels: Vec<Vec<char>>) -> Tile {
-//         Tile{id, pixels}
-//     }
-//
-//     pub fn variations(self) -> Vec<Tile> {
-//         let mut variations = Vec::new();
-//         let mut current = self.flipped();
-//         for _ in 0..3 {
-//             let next = current.rotated();
-//             variations.push(current);
-//             current = next;
-//         }
-//         variations.push(current);
-//
-//         current = self;
-//         for _ in 0..3 {
-//             let next = current.rotated();
-//             variations.push(current);
-//             current = next;
-//         }
-//         variations.push(current);
-//         variations
-//     }
-//
-//     fn flipped(&self) -> Tile {
-//         let mut flipped_pixels = self.pixels
-//             .iter()
-//             .map(|line| line.iter()
-//                 .map(|c| *c)
-//                 .rev()
-//                 .collect())
-//             .collect();
-//
-//         Tile::new(self.id, flipped_pixels)
-//     }
-//
-//
-//
-//     fn rotated(&self) -> Tile {
-//         let mut rotated_pixels = self.pixels.clone();
-//         for i in 0..TILE_SIZE {
-//             for j in 0..TILE_SIZE {
-//                 rotated_pixels[i][j] = self.pixels[TILE_SIZE-j-1][i];
-//             }
-//         }
-//         Tile::new(self.id, rotated_pixels)
-//     }
-//
-//     fn top(&self) -> (String, Edge) {
-//         (self.pixels[0].iter().collect(), Top)
-//     }
-//
-//     fn bottom(&self) -> (String, Edge) {
-//         (self.pixels[TILE_SIZE-1].iter().collect(), Bottom)
-//     }
-//
-//     fn left(&self) -> (String, Edge) {
-//         let mut left = String::new();
-//         for i in 0..TILE_SIZE {
-//             left.push(self.pixels[i][0]);
-//         }
-//         (left, Left)
-//     }
-//
-//     fn right(&self) -> (String, Edge) {
-//         let mut right = String::new();
-//         for i in 0..TILE_SIZE {
-//             right.push(self.pixels[i][TILE_SIZE-1]);
-//         }
-//         (right, Right)
-//     }
-// }
-//
-// impl fmt::Display for Tile {
-//     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-//         let mut out = format!("Tile: {}\n", self.id);
-//         for i in 0..self.pixels.len() {
-//             out += &format!("{}\n", self.pixels[i].iter().collect::<String>());
-//         }
-//         write!(f, "{}", out)
-//     }
-// }
-//
-// fn read_tiles<'a>(lines: impl Iterator<Item=&'a str>) -> Vec<Tile> {
-//     let mut peekable = lines.peekable();
-//     let mut tiles = Vec::new();
-//     while peekable.peek().is_some() {
-//         let line = peekable.next().unwrap();
-//         let id = &line[5..line.len()-2].parse::<u32>().unwrap();
-//         let mut pixels = Vec::new();
-//         for _ in 0..TILE_SIZE {
-//             let pixel_str = peekable.next().unwrap();
-//             pixels.push(pixel_str.chars().collect());
-//         }
-//         peekable.next().unwrap();
-//         tiles.push(Tile::new(*id, pixels))
-//     }
-//
-//     tiles
-// }
-//
-// fn main() {
-//     let tiles = read_tiles(include_str!("../input.txt").lines());
-//     let mut used: HashSet<u32> = HashSet::new();
-//     let mut row_left = find_top_left(&tiles).expect("no top left");
-//     // used.insert(top_left.id);
-//     // println!("top left: {}", top_left);
-//     //
-//     //
-//     // let mut left = top_left.clone();
-//     // for _ in 0..11 {
-//     //     let next_right = find_next_right(&tiles, &left, &used).expect("no next right");
-//     //     used.insert(next_right.id);
-//     //     println!("next_right: {}", next_right);
-//     //     left = next_right;
-//     // }
-//     //
-//     // let next_below = find_next_below(&tiles, &top_left, &used).expect("no next below");
-//     // println!("{}", next_below);
-//     let mut image: Vec<Vec<Tile>> = Vec::new();
-//     for i in 0..IMAGE_SIZE {
-//         let mut row = vec![row_left.clone()];
-//         for _ in 0..11 {
-//             let next_right = find_next_right(&tiles, &row[row.len() -1], &used).expect("no next right");
-//             used.insert(next_right.id);
-//             row.push(next_right);
-//             println!("tile done");
-//         }
-//         if i < IMAGE_SIZE-1 {
-//             row_left = find_next_below(&tiles, &row[0], &used).expect("no next below");
-//         }
-//         image.push(row);
-//         println!("row done");
-//     }
-// }
-//
-// fn find_top_left(tiles: &[Tile]) -> Option<Tile> {
-//     'outer: for tile in tiles.iter().map(|t| t.clone().variations()).flatten() {
-//         let current = tile.clone();
-//         let (top, _) = current.top();
-//         let (left, _) = current.left();
-//         let bottom_edge = (top, Bottom);
-//         let right_edge = (left, Right);
-//         for other in tiles.iter().filter(|t| t.id != current.id) {
-//             for variant in other.clone().variations() {
-//                 if bottom_edge == variant.bottom() {
-//                     continue 'outer;
-//                 }
-//                 if right_edge == variant.right() {
-//                     continue 'outer;
-//                 }
-//             }
-//         }
-//         return Some(current.clone());
-//     }
-//     None
-// }
-//
-// fn find_next_right<'a>(tiles: &[Tile], left: &Tile, used: &HashSet<u32>) -> Option<Tile> {
-//     let (right, _) = left.right();
-//     let left_edge = (right, Left);
-//     for other in tiles.iter().filter(|t| t.id != left.id && !used.contains(&t.id)) {
-//         for variant in other.clone().variations() {
-//             if left_edge == variant.left() {
-//                 return Some(variant);
-//             }
-//         }
-//     }
-//     None
-// }
-//
-// fn find_next_below<'a>(tiles: &[Tile], top: &Tile, used: &HashSet<u32>) -> Option<Tile> {
-//     let (bottom, _) = top.bottom();
-//     let top_edge = (bottom, Top);
-//     for other in tiles.iter().filter(|t| t.id != top.id && !used.contains(&t.id)) {
-//         for variant in other.clone().variations() {
-//             if top_edge == variant.top() {
-//                 return Some(variant);
-//             }
-//         }
-//     }
-//     None
-// }
+    let result = picture_search(
+        all_tiles,
+        IMHashSet::new().update(top_left.id),
+        vector![top_left.clone()],
+        size
+    ).expect("no result");
+
+    let mut picture_vec = Vec::new();
+    for tile in result.iter() {
+        picture_vec.push(tile.clone());
+    }
+    picture_vec
+}
+
+fn picture_search(all: &[Rc<Tile>], used: IMHashSet<u32>, path: IMVector<Rc<Tile>>, size: usize) -> Option<IMVector<Rc<Tile>>> {
+    if path.len() == size * size {
+        return Some(path);
+    }
+
+    let candidates = match path.len() % size {
+        0 => {
+            let first_in_line = path.get(path.len() - size).expect("first in line");
+            all.find_next_belows(first_in_line, &used.update(first_in_line.id))
+        },
+        _ => {
+            let current = path.last().expect("no last");
+            all.find_next_rights( current ,&used.update(current.id))
+        },
+    };
+
+    for candidate in candidates {
+        let mut new_path = path.clone();
+        new_path.push_back(candidate.clone());
+        if let Some(result) = picture_search(all, used.update(candidate.id), new_path, size) {
+            return Some(result);
+        }
+    }
+    None
+}
 
 #[cfg(test)]
 mod tests {
@@ -631,5 +547,44 @@ mod tests {
     fn it_finds_the_expected_part_1_solution() {
         let all_tiles = (&read_tiles(TEST_QUERIES_AND_SOLUTIONS.lines())[..]).all_variations();
         assert_eq!(20899048083289, part_1(&all_tiles));
+    }
+
+    #[test]
+    fn it_finds_the_expected_next_rights_of() {
+        let tiles = read_tiles(TEST_QUERIES_AND_SOLUTIONS.lines());
+
+        // get tile 1951 in the correct orientation for tile 2311 in some rotation to be at its right
+        let t1951_original = tiles.iter().find(|t|t.id == 1951).unwrap();
+        let t1951 = t1951_original.flipped().rotated().rotated();
+
+        let all_tiles = (&tiles[..]).all_variations();
+        let right_of = (&all_tiles[..]).find_next_rights(&t1951, &IMHashSet::new());
+        assert!(right_of.iter().find(|t| t.id == 2311).is_some());
+    }
+
+    #[test]
+    fn it_finds_the_expected_next_below() {
+        let tiles = read_tiles(TEST_QUERIES_AND_SOLUTIONS.lines());
+
+        // get tile 1951 in the correct orientation for tile 2311 in some rotation to be at its right
+        let t1951_original = tiles.iter().find(|t|t.id == 1951).unwrap();
+        let t1951 = t1951_original.flipped().rotated().rotated();
+
+        let all_tiles = (&tiles[..]).all_variations();
+        let below = (&all_tiles[..]).find_next_belows(&t1951, &IMHashSet::new());
+        assert!(below.iter().find(|t| t.id == 2729).is_some());
+    }
+
+    #[test]
+    fn it_builds_a_picture_from_the_test_input() {
+        let all_tiles = (&read_tiles(TEST_QUERIES_AND_SOLUTIONS.lines())[..]).all_variations();
+        let picture_vec = build_picture_vec(&all_tiles, 3);
+    }
+
+    #[test]
+    fn it_builds_an_image() {
+        let all_tiles = (&read_tiles(TEST_QUERIES_AND_SOLUTIONS.lines())[..]).all_variations();
+        let picture_vec = build_picture_vec(&all_tiles, 3);
+        let image = Image::new(&picture_vec, 3 * 8, 3);
     }
 }
