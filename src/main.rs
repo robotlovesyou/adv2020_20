@@ -1,24 +1,30 @@
-use std::collections::{HashMap, HashSet};
-use std::{fmt, cmp};
+use std::collections::HashSet;
+use std::fmt;
 use std::fmt::Formatter;
 use std::rc::Rc;
 
-use im_rc::{HashSet as IMHashSet, Vector as IMVector, vector};
-use itertools::{Itertools, all};
+use im_rc::{vector, HashSet as IMHashSet, Vector as IMVector};
+use itertools::Itertools;
 
 const TILE_SIZE: usize = 10;
 const IMAGE_SIZE: usize = 12;
 const IMAGE_PIXEL_SIZE: usize = IMAGE_SIZE * 8;
 const BUFFER_SIZE: usize = 100;
-const PICTURE_BUFFER_SIZE: usize = IMAGE_SIZE * IMAGE_SIZE * 8;
+const SEA_MONSTER_WIDTH: usize = 20;
+const SEA_MONSTER_DEPTH: usize = 3;
+
+const SEA_MONSTER: [[u8; SEA_MONSTER_WIDTH]; SEA_MONSTER_DEPTH] = [
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
+    [1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 1],
+    [0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0],
+];
 
 fn main() {
     let tiles = read_tiles(include_str!("../input.txt").lines());
-    let all_tiles = (&tiles[..]).all_variations();
-    let part_1_solution = part_1(&all_tiles);
-    println!("part 1: {}", part_1_solution);
+    let all_variations = (&tiles[..]).all_variations();
+    println!("part 1: {}", part_1(&all_variations));
 
-    let picture_vec = build_picture_vec(&all_tiles, IMAGE_SIZE);
+    println!("part 2: {}", part_2(&all_variations));
 }
 
 struct Tile {
@@ -28,15 +34,13 @@ struct Tile {
 
 impl Tile {
     pub fn new(id: u32, pixels: [u8; BUFFER_SIZE]) -> Tile {
-        Tile {
-            id,
-            pixels,
-        }
+        Tile { id, pixels }
     }
 
+    #[allow(dead_code)]
     pub fn connects_above(&self, other: &Self) -> bool {
         for x in 0..TILE_SIZE {
-            if self.pixels[offset(x, TILE_SIZE-1)] != other.pixels[offset(x, 0)] {
+            if self.pixels[offset(x, TILE_SIZE - 1)] != other.pixels[offset(x, 0)] {
                 return false;
             }
         }
@@ -45,16 +49,17 @@ impl Tile {
 
     pub fn connects_below(&self, other: &Self) -> bool {
         for x in 0..TILE_SIZE {
-            if self.pixels[offset(x, 0)] != other.pixels[offset(x, TILE_SIZE-1)] {
+            if self.pixels[offset(x, 0)] != other.pixels[offset(x, TILE_SIZE - 1)] {
                 return false;
             }
         }
         true
     }
 
+    #[allow(dead_code)]
     pub fn connects_left_of(&self, other: &Self) -> bool {
         for y in 0..TILE_SIZE {
-            if self.pixels[offset(TILE_SIZE-1, y)] != other.pixels[offset(0, y)] {
+            if self.pixels[offset(TILE_SIZE - 1, y)] != other.pixels[offset(0, y)] {
                 return false;
             }
         }
@@ -63,31 +68,29 @@ impl Tile {
 
     pub fn connects_right_of(&self, other: &Self) -> bool {
         for y in 0..TILE_SIZE {
-            if self.pixels[offset(0, y)] != other.pixels[offset(TILE_SIZE-1, y)] {
+            if self.pixels[offset(0, y)] != other.pixels[offset(TILE_SIZE - 1, y)] {
                 return false;
             }
         }
         true
     }
 
-
     pub fn flipped(&self) -> Rc<Self> {
         let mut new_pixels: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
         for y in 0..TILE_SIZE {
             for x in 0..TILE_SIZE {
-                new_pixels[offset(TILE_SIZE-1-x, y)] = self.pixels[offset(x, y)];
+                new_pixels[offset(TILE_SIZE - 1 - x, y)] = self.pixels[offset(x, y)];
             }
         }
         Rc::new(Tile::new(self.id, new_pixels))
     }
-
 
     pub fn rotated(&self) -> Rc<Self> {
         let mut rotated_pixels: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
 
         for i in 0..TILE_SIZE {
             for j in 0..TILE_SIZE {
-                rotated_pixels[offset(i, j)] = self.pixels[offset(TILE_SIZE-j-1,i)];
+                rotated_pixels[offset(i, j)] = self.pixels[offset(TILE_SIZE - j - 1, i)];
             }
         }
         Rc::new(Tile::new(self.id, rotated_pixels))
@@ -157,7 +160,10 @@ impl TilesOps for &[Rc<Tile>] {
     fn find_next_rights(&self, of: &Rc<Tile>, used: &IMHashSet<u32>) -> Vec<Rc<Tile>> {
         let mut next_rights = Vec::new();
 
-        for tile in self.iter().filter(|t|!used.contains(&t.id) && t.id != of.id) {
+        for tile in self
+            .iter()
+            .filter(|t| !used.contains(&t.id) && t.id != of.id)
+        {
             if tile.connects_right_of(of) {
                 next_rights.push(tile.clone());
             }
@@ -169,7 +175,10 @@ impl TilesOps for &[Rc<Tile>] {
     fn find_next_belows(&self, of: &Rc<Tile>, used: &IMHashSet<u32>) -> Vec<Rc<Tile>> {
         let mut next_belows = Vec::new();
 
-        for tile in self.iter().filter(|t| !used.contains(&t.id) && t.id != of.id) {
+        for tile in self
+            .iter()
+            .filter(|t| !used.contains(&t.id) && t.id != of.id)
+        {
             if tile.connects_below(of) {
                 next_belows.push(tile.clone());
             }
@@ -181,7 +190,7 @@ impl TilesOps for &[Rc<Tile>] {
 
 impl fmt::Display for Tile {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let mut buffer = String::with_capacity(BUFFER_SIZE+TILE_SIZE);
+        let mut buffer = String::with_capacity(BUFFER_SIZE + TILE_SIZE);
         for y in 0..TILE_SIZE {
             for x in 0..TILE_SIZE {
                 buffer += self.pixels[offset(x, y)].to_string().as_str();
@@ -206,24 +215,106 @@ fn image_offset(x: usize, y: usize, size: usize) -> usize {
 }
 
 impl Image {
-    fn new(tiles: &[Rc<Tile>], size: usize, tile_size: usize) -> Image {
-        let mut pixels= vec![0u8; size * size];
+    fn new(tiles: &[Rc<Tile>], size: usize) -> Image {
+        let mut pixels = vec![0u8; size * size];
+        let width_in_tiles = size / (TILE_SIZE - 2);
 
         for (i, tile) in tiles.iter().enumerate() {
             let start_x = (i * 8) % (size);
-            let start_y = (i / tile_size) * 8;
-            println!("{},{}", start_x, start_y);
-            for x in 1..TILE_SIZE-1 {
-                for y in 1..TILE_SIZE-1 {
-                    pixels[image_offset(start_x + x-1, start_y + y-1, size)] = tile.pixels[offset(x, y)];
+            let start_y = (i / width_in_tiles) * 8;
+            for x in 1..TILE_SIZE - 1 {
+                for y in 1..TILE_SIZE - 1 {
+                    pixels[image_offset(start_x + x - 1, start_y + y - 1, size)] =
+                        tile.pixels[offset(x, y)];
                 }
             }
         }
 
-        Image {
-            pixels,
-            size
+        Image { pixels, size }
+    }
+
+    fn flipped(&self) -> Image {
+        let mut new_pixels = vec![0u8; self.size * self.size];
+        for y in 0..(self.size) {
+            for x in 0..(self.size) {
+                new_pixels[image_offset(self.size - 1 - x, y, self.size)] =
+                    self.pixels[image_offset(x, y, self.size)];
+            }
         }
+        Image {
+            pixels: new_pixels,
+            size: self.size,
+        }
+    }
+
+    fn rotated(&self) -> Image {
+        let mut rotated_pixels = vec![0u8; self.size * self.size];
+        for i in 0..self.size {
+            for j in 0..self.size {
+                rotated_pixels[image_offset(i, j, self.size)] =
+                    self.pixels[image_offset(self.size - j - 1, i, self.size)];
+            }
+        }
+        Image {
+            pixels: rotated_pixels,
+            size: self.size,
+        }
+    }
+
+    fn count_active_pixels(&self) -> usize {
+        self.pixels.iter().map(|p| *p as usize).sum()
+    }
+
+    #[allow(clippy::needless_range_loop)] // yeah it might be faster but this is readable!
+    fn count_sea_monster_pixels(&self) -> usize {
+        let mut sea_monster_pixels: HashSet<(usize, usize)> = HashSet::new();
+        for x in 0..(self.size - SEA_MONSTER_WIDTH) {
+            'image: for y in 0..(self.size - SEA_MONSTER_DEPTH) {
+                let mut matched_pixels = Vec::new();
+                for mx in 0..SEA_MONSTER_WIDTH {
+                    for my in 0..SEA_MONSTER_DEPTH {
+                        if SEA_MONSTER[my][mx] == 1 {
+                            if self.pixels[image_offset(x + mx, y + my, self.size)] == 1 {
+                                matched_pixels.push((x + mx, y + my));
+                            } else {
+                                continue 'image;
+                            }
+                        }
+                    }
+                }
+                for coord in matched_pixels {
+                    sea_monster_pixels.insert(coord);
+                }
+            }
+        }
+
+        sea_monster_pixels.len()
+    }
+
+    fn roughness(&self) -> usize {
+        self.count_active_pixels() - self.count_sea_monster_pixels()
+    }
+}
+
+impl Variable for Rc<Image> {
+    type Item = Rc<Image>;
+    fn variations(&self) -> Vec<Self::Item> {
+        let mut variations = Vec::new();
+        let mut current = self.clone();
+        variations.push(current.clone());
+        for _ in 0..3 {
+            current = Rc::new(current.rotated());
+            variations.push(current.clone());
+        }
+
+        current = Rc::new(self.flipped());
+        variations.push(current.clone());
+        for _ in 0..3 {
+            current = Rc::new(current.rotated());
+            variations.push(current.clone());
+        }
+
+        variations
     }
 }
 
@@ -232,7 +323,9 @@ impl fmt::Display for Image {
         let mut buffer = String::with_capacity(self.pixels.len());
         for y in 0..self.size {
             for x in 0..self.size {
-                buffer += self.pixels[image_offset(x, y, self.size)].to_string().as_str();
+                buffer += self.pixels[image_offset(x, y, self.size)]
+                    .to_string()
+                    .as_str();
             }
             buffer += "\n";
         }
@@ -240,13 +333,37 @@ impl fmt::Display for Image {
     }
 }
 
-fn read_tiles<'a>(lines: impl Iterator<Item=&'a str>) -> Vec<Rc<Tile>> {
+trait MonsterSearch {
+    fn roughness(&self) -> usize;
+}
+
+impl MonsterSearch for &[Rc<Image>] {
+    fn roughness(&self) -> usize {
+        *self
+            .iter()
+            .map(|v| {
+                let roughness = v.roughness();
+                if roughness != v.count_active_pixels() {
+                    Some(roughness)
+                } else {
+                    None
+                }
+            })
+            .filter(|r| r.is_some())
+            .map(|r| r.unwrap())
+            .collect::<Vec<usize>>()
+            .first()
+            .unwrap()
+    }
+}
+
+fn read_tiles<'a>(lines: impl Iterator<Item = &'a str>) -> Vec<Rc<Tile>> {
     let mut peekable = lines.peekable();
     let mut tiles = Vec::new();
     let mut pixels: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
     while peekable.peek().is_some() {
         let line = peekable.next().unwrap();
-        let id = &line[5..line.len()-1].parse::<u32>().unwrap();
+        let id = &line[5..line.len() - 1].parse::<u32>().unwrap();
 
         for y in 0..TILE_SIZE {
             for (x, c) in peekable.next().unwrap().chars().enumerate() {
@@ -254,7 +371,6 @@ fn read_tiles<'a>(lines: impl Iterator<Item=&'a str>) -> Vec<Rc<Tile>> {
                     pixels[offset(x, y)] = 1;
                 }
             }
-
         }
         peekable.next().unwrap();
         tiles.push(Rc::new(Tile::new(*id, pixels)));
@@ -265,18 +381,34 @@ fn read_tiles<'a>(lines: impl Iterator<Item=&'a str>) -> Vec<Rc<Tile>> {
 }
 
 fn part_1(all_tiles: &[Rc<Tile>]) -> u64 {
-    all_tiles.find_top_lefts().iter().map(|t| t.id as u64).product()
+    all_tiles
+        .find_top_lefts()
+        .iter()
+        .map(|t| t.id as u64)
+        .product()
+}
+
+fn part_2(all_variations: &[Rc<Tile>]) -> usize {
+    let picture_vec = build_picture_vec(all_variations, IMAGE_SIZE);
+    let image = Image::new(&picture_vec, IMAGE_PIXEL_SIZE);
+    let variations = Rc::new(image).variations();
+
+    (&variations[..]).roughness()
 }
 
 fn build_picture_vec(all_tiles: &[Rc<Tile>], size: usize) -> Vec<Rc<Tile>> {
-    let top_left = all_tiles.find_top_lefts().first().expect("no top lefts").clone();
-
+    let top_left = all_tiles
+        .find_top_lefts()
+        .first()
+        .expect("no top lefts")
+        .clone();
     let result = picture_search(
         all_tiles,
         IMHashSet::new().update(top_left.id),
         vector![top_left.clone()],
-        size
-    ).expect("no result");
+        size,
+    )
+    .expect("no result");
 
     let mut picture_vec = Vec::new();
     for tile in result.iter() {
@@ -285,7 +417,12 @@ fn build_picture_vec(all_tiles: &[Rc<Tile>], size: usize) -> Vec<Rc<Tile>> {
     picture_vec
 }
 
-fn picture_search(all: &[Rc<Tile>], used: IMHashSet<u32>, path: IMVector<Rc<Tile>>, size: usize) -> Option<IMVector<Rc<Tile>>> {
+fn picture_search(
+    all: &[Rc<Tile>],
+    used: IMHashSet<u32>,
+    path: IMVector<Rc<Tile>>,
+    size: usize,
+) -> Option<IMVector<Rc<Tile>>> {
     if path.len() == size * size {
         return Some(path);
     }
@@ -294,11 +431,11 @@ fn picture_search(all: &[Rc<Tile>], used: IMHashSet<u32>, path: IMVector<Rc<Tile
         0 => {
             let first_in_line = path.get(path.len() - size).expect("first in line");
             all.find_next_belows(first_in_line, &used.update(first_in_line.id))
-        },
+        }
         _ => {
             let current = path.last().expect("no last");
-            all.find_next_rights( current ,&used.update(current.id))
-        },
+            all.find_next_rights(current, &used.update(current.id))
+        }
     };
 
     for candidate in candidates {
@@ -316,7 +453,8 @@ mod tests {
     use super::*;
     use indoc::indoc;
 
-    const TEST_TILE: &str = indoc!("
+    const TEST_TILE: &str = indoc!(
+        "
         Tile 2311:
         ..##.#..#.
         ##..#.....
@@ -329,9 +467,11 @@ mod tests {
         ###...#.#.
         ..###..###
 
-        ");
+        "
+    );
 
-    const TEST_TILE_EDGES: &str = indoc!("
+    const TEST_TILE_EDGES: &str = indoc!(
+        "
         Tile 1234:
         .#.#.#.#.#
         ##..#.....
@@ -356,9 +496,11 @@ mod tests {
         #.#..###..
         .#.#.#.#.#
 
-        ");
+        "
+    );
 
-    const TEST_QUERIES_AND_SOLUTIONS: &str = indoc!("
+    const TEST_QUERIES_AND_SOLUTIONS: &str = indoc!(
+        "
         Tile 2311:
         ..##.#..#.
         ##..#.....
@@ -467,7 +609,8 @@ mod tests {
         ..#.......
         ..#.###...
 
-    ");
+    "
+    );
 
     #[test]
     fn it_reads_a_single_tile() {
@@ -501,7 +644,10 @@ mod tests {
         let flipped = tile.flipped();
         for y in 0..TILE_SIZE {
             for x in 0..TILE_SIZE {
-                assert_eq!(tile.pixels[offset(x, y)], flipped.pixels[offset(TILE_SIZE-1-x, y)]);
+                assert_eq!(
+                    tile.pixels[offset(x, y)],
+                    flipped.pixels[offset(TILE_SIZE - 1 - x, y)]
+                );
             }
         }
     }
@@ -512,24 +658,47 @@ mod tests {
         let rotated = tile.rotated();
         assert_eq!(tile.id, rotated.id);
 
-        let tile_left = (0..TILE_SIZE).map(|y| tile.pixels[offset(0, y)]).collect::<Vec<u8>>();
-        assert_eq!(&tile_left[..], &rotated.pixels[BUFFER_SIZE-TILE_SIZE..]);
+        let tile_left = (0..TILE_SIZE)
+            .map(|y| tile.pixels[offset(0, y)])
+            .collect::<Vec<u8>>();
+        assert_eq!(&tile_left[..], &rotated.pixels[BUFFER_SIZE - TILE_SIZE..]);
 
-        let tile_right = (0..TILE_SIZE).map(|y| tile.pixels[offset(TILE_SIZE-1, y)]).collect::<Vec<u8>>();
+        let tile_right = (0..TILE_SIZE)
+            .map(|y| tile.pixels[offset(TILE_SIZE - 1, y)])
+            .collect::<Vec<u8>>();
         assert_eq!(&tile_right[..], &rotated.pixels[0..TILE_SIZE]);
 
-        let rotated_left = (0..TILE_SIZE).map(|y| rotated.pixels[offset(0, y)]).collect::<Vec<u8>>();
-        let tile_top = tile.pixels[0..TILE_SIZE].iter().rev().cloned().collect::<Vec<u8>>();
+        let rotated_left = (0..TILE_SIZE)
+            .map(|y| rotated.pixels[offset(0, y)])
+            .collect::<Vec<u8>>();
+        let tile_top = tile.pixels[0..TILE_SIZE]
+            .iter()
+            .rev()
+            .cloned()
+            .collect::<Vec<u8>>();
         assert_eq!(&rotated_left, &tile_top);
 
-        let rotated_right = (0..TILE_SIZE).map(|y| rotated.pixels[offset(TILE_SIZE-1, y)]).collect::<Vec<u8>>();
-        let tile_bottom = tile.pixels[BUFFER_SIZE-TILE_SIZE..].iter().rev().cloned().collect::<Vec<u8>>();
+        let rotated_right = (0..TILE_SIZE)
+            .map(|y| rotated.pixels[offset(TILE_SIZE - 1, y)])
+            .collect::<Vec<u8>>();
+        let tile_bottom = tile.pixels[BUFFER_SIZE - TILE_SIZE..]
+            .iter()
+            .rev()
+            .cloned()
+            .collect::<Vec<u8>>();
         assert_eq!(&rotated_right, &tile_bottom);
     }
 
     #[test]
     fn it_creates_the_expected_number_of_variations() {
-        assert_eq!(8, read_tiles(TEST_TILE.lines()).pop().unwrap().variations().len());
+        assert_eq!(
+            8,
+            read_tiles(TEST_TILE.lines())
+                .pop()
+                .unwrap()
+                .variations()
+                .len()
+        );
     }
 
     #[test]
@@ -554,7 +723,7 @@ mod tests {
         let tiles = read_tiles(TEST_QUERIES_AND_SOLUTIONS.lines());
 
         // get tile 1951 in the correct orientation for tile 2311 in some rotation to be at its right
-        let t1951_original = tiles.iter().find(|t|t.id == 1951).unwrap();
+        let t1951_original = tiles.iter().find(|t| t.id == 1951).unwrap();
         let t1951 = t1951_original.flipped().rotated().rotated();
 
         let all_tiles = (&tiles[..]).all_variations();
@@ -567,7 +736,7 @@ mod tests {
         let tiles = read_tiles(TEST_QUERIES_AND_SOLUTIONS.lines());
 
         // get tile 1951 in the correct orientation for tile 2311 in some rotation to be at its right
-        let t1951_original = tiles.iter().find(|t|t.id == 1951).unwrap();
+        let t1951_original = tiles.iter().find(|t| t.id == 1951).unwrap();
         let t1951 = t1951_original.flipped().rotated().rotated();
 
         let all_tiles = (&tiles[..]).all_variations();
@@ -578,13 +747,31 @@ mod tests {
     #[test]
     fn it_builds_a_picture_from_the_test_input() {
         let all_tiles = (&read_tiles(TEST_QUERIES_AND_SOLUTIONS.lines())[..]).all_variations();
-        let picture_vec = build_picture_vec(&all_tiles, 3);
+        build_picture_vec(&all_tiles, 3);
     }
 
     #[test]
     fn it_builds_an_image() {
         let all_tiles = (&read_tiles(TEST_QUERIES_AND_SOLUTIONS.lines())[..]).all_variations();
         let picture_vec = build_picture_vec(&all_tiles, 3);
-        let image = Image::new(&picture_vec, 3 * 8, 3);
+        Image::new(&picture_vec, 3 * 8);
+    }
+
+    #[test]
+    fn it_creates_the_expected_variations() {
+        let all_tiles = (&read_tiles(TEST_QUERIES_AND_SOLUTIONS.lines())[..]).all_variations();
+        let picture_vec = build_picture_vec(&all_tiles, 3);
+        let image = Image::new(&picture_vec, 3 * 8);
+        let variations = Rc::new(image).variations();
+        assert_eq!(8, variations.len());
+    }
+
+    #[test]
+    fn it_finds_the_expected_roughness() {
+        let all_tiles = (&read_tiles(TEST_QUERIES_AND_SOLUTIONS.lines())[..]).all_variations();
+        let picture_vec = build_picture_vec(&all_tiles, 3);
+        let image = Image::new(&picture_vec, 3 * 8);
+        let variations = Rc::new(image).variations();
+        assert_eq!(273, (&variations[..]).roughness())
     }
 }
